@@ -1,6 +1,6 @@
 # Music Vote: Design Doc
 
-A tiny private website where a group of 5 friends runs music "rounds". Each round has a theme, everyone submits songs found via Spotify search, the host's Spotify account gets an auto-generated playlist of the submissions to listen to, and everyone votes.
+A tiny private website where a small group of friends runs music "rounds". Each round has a theme, everyone submits songs found via Spotify search, the host's Spotify account gets an auto-generated playlist of the submissions to listen to, and everyone votes.
 
 This document is a handoff spec for Claude Code. Build it in the milestone order at the bottom. Items marked **VERIFY** are things the author could not confirm and must be checked against current Spotify/Supabase docs before relying on them.
 
@@ -10,12 +10,12 @@ This document is a handoff spec for Claude Code. Build it in the milestone order
 
 **Goals**
 - Free to host and run ($0).
-- Exactly 5 users, each logging in with their own Spotify account.
+- A handful of members (currently 6) logging in by email. Only the host connects a Spotify account.
 - Search Spotify for tracks, submit them to a round, auto-create a playlist of the submissions when voting opens, and vote.
-- Static frontend (GitHub Pages) plus a hosted database (Supabase). No custom server.
+- Static frontend (GitHub Pages) plus a hosted database (Supabase). No custom server beyond one Supabase Edge Function for search.
 
 **Non-goals**
-- Scaling beyond 5 users (Spotify's rules make this impractical, see section 2).
+- Large groups. Spotify's dev-mode request quota still applies (see section 2).
 - Recommendations or audio-feature-based features (removed from Spotify's API for new apps).
 - In-app full-track playback. Use Spotify embeds for listening.
 
@@ -25,7 +25,7 @@ This document is a handoff spec for Claude Code. Build it in the milestone order
 
 - The app runs in Spotify **development mode**. The app owner (the host) must have an active **Spotify Premium** subscription or the app stops working.
 - Development mode allows **up to 5 authenticated Spotify users**, each of whom must be added to the app's **allowlist** in the Spotify Developer Dashboard (needs each person's name and Spotify account email). Non-allowlisted users can log in but get 403s on API calls.
-  - **VERIFY:** whether the owner counts toward the 5. Plan is host plus 4 friends.
+  - **Update (Oct 2026):** to fit more than 5 members, only the host authorizes with Spotify. Members sign in with an emailed link and search through the `spotify-search` edge function, which uses the app's Client Credentials token and doesn't count toward the cap.
 - Extended quota mode is not realistic (organizations only, 250k MAU requirement).
 - Endpoints/fields removed or changed in the Nov 2024 and Feb 2026 API changes. Do not use outdated tutorials. In particular:
   - No recommendations, audio features, or related-artists endpoints.
@@ -42,13 +42,14 @@ This document is a handoff spec for Claude Code. Build it in the milestone order
 
 ```
 Browser (GitHub Pages, static SPA)
-   |-- Supabase Auth (Spotify OAuth provider) --> Spotify accounts
+   |-- Supabase Auth (email link; Spotify OAuth for the host only)
    |-- Supabase JS client (anon key + RLS) -----> Postgres (members, rounds, submissions, votes)
-   |-- Spotify Web API (user's own access token) -> search; host only: create playlist
+   |-- Edge Function spotify-search (app token) -> Spotify search
+   |-- Spotify Web API (host's access token) ----> create playlist
 ```
 
-- **No custom backend.** All logic is client-side plus Postgres RLS and a few SQL functions/views.
-- **Auth:** Supabase Auth with the built-in Spotify provider. This gives every user a Supabase `auth.uid()` that RLS policies can use, and Supabase holds the Spotify client secret (it never goes in the repo or browser).
+- **Almost no backend.** All logic is client-side plus Postgres RLS and a few SQL functions/views. The one exception is the `spotify-search` edge function, which holds the Spotify client secret.
+- **Auth:** Supabase Auth with email magic links for members (custom SMTP), plus the Spotify provider linked to the host's account. This gives every user a Supabase `auth.uid()` that RLS policies can use, and Supabase holds the Spotify client secret (it never goes in the repo or browser).
 - **Spotify token:** after login, the Supabase session exposes the Spotify access token as `session.provider_token`. It is only reliably available at sign-in time and is not refreshed by Supabase. Therefore:
   - On the `SIGNED_IN` auth event, copy `provider_token` into `localStorage`.
   - Spotify tokens last about 1 hour. If a Spotify call returns 401, re-run sign-in (it is a one-click redirect) and retry.
