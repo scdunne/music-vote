@@ -72,15 +72,21 @@ Deno.serve(async (req) => {
     limit: String(SEARCH_PAGE_SIZE),
     offset: String(offset),
   });
-  let res = await fetch(`https://api.spotify.com/v1/search?${params}`, {
-    headers: { Authorization: `Bearer ${await getAppToken()}` },
-  });
-  if (res.status === 401) {
-    // The cached token was revoked early; fetch a fresh one and retry once.
-    appToken = null;
+  let res: Response;
+  try {
     res = await fetch(`https://api.spotify.com/v1/search?${params}`, {
       headers: { Authorization: `Bearer ${await getAppToken()}` },
     });
+    if (res.status === 401) {
+      // The cached token was revoked early; fetch a fresh one and retry once.
+      appToken = null;
+      res = await fetch(`https://api.spotify.com/v1/search?${params}`, {
+        headers: { Authorization: `Bearer ${await getAppToken()}` },
+      });
+    }
+  } catch (e) {
+    console.error(e);
+    return json(500, { error: `Search is misconfigured: ${e instanceof Error ? e.message : e}` });
   }
   if (res.status === 429) {
     const wait = res.headers.get('Retry-After');
