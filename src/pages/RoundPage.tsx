@@ -7,6 +7,7 @@ import {
   createRoundPlaylist,
   deleteSubmission,
   getRound,
+  hashOrder,
   listProfiles,
   listResults,
   listSubmissions,
@@ -52,10 +53,16 @@ export default function RoundPage() {
       {round.status === 'draft' && <p className="muted">This round hasn't opened yet. Open it from the Host page.</p>}
       {round.status === 'submitting' && <SubmitPhase round={round} submissions={data.submissions} reload={reload} />}
       {round.status === 'voting' && (
-        <VotePhase round={round} submissions={data.submissions} votes={data.votes} reload={reload} />
+        <>
+          <PlaylistLink round={round} reload={reload} />
+          <VotePhase round={round} submissions={data.submissions} votes={data.votes} reload={reload} />
+        </>
       )}
       {round.status === 'closed' && (
-        <Results round={round} results={data.results} profiles={data.profiles} reload={reload} />
+        <>
+          <PlaylistLink round={round} reload={reload} />
+          <Results results={data.results} profiles={data.profiles} />
+        </>
       )}
     </>
   );
@@ -147,12 +154,6 @@ function SubmitPhase({ round, submissions, reload }: { round: Round; submissions
   );
 }
 
-/** Stable pseudo-random order so the list doesn't reveal submission order and doesn't jump on reload. */
-function hashOrder(a: Submission, b: Submission) {
-  const h = (s: string) => [...s].reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) | 0, 7);
-  return h(a.id) - h(b.id);
-}
-
 function VotePhase(props: { round: Round; submissions: Submission[]; votes: Vote[]; reload: () => void }) {
   const { round, submissions, votes, reload } = props;
   const { profile } = useAuth();
@@ -160,17 +161,18 @@ function VotePhase(props: { round: Round; submissions: Submission[]; votes: Vote
   const [error, setError] = useState<unknown>(null);
 
   // RLS only returns our own votes during voting, but filter anyway.
-  const myVotes = new Map(votes.filter((v) => v.voter_id === profile?.id).map((v) => [v.submission_id, v]));
-  const left = round.votes_per_member - myVotes.size;
+  const mine = votes.filter((v) => v.voter_id === profile?.id);
+  const bySong = new Map<string, Vote[]>();
+  for (const v of mine) bySong.set(v.submission_id, [...(bySong.get(v.submission_id) ?? []), v]);
+  const left = round.votes_per_member - mine.length;
   const ordered = [...submissions].sort(hashOrder);
 
-  async function toggle(s: Submission) {
+  async function change(s: Submission, delta: 1 | -1) {
     setBusyId(s.id);
     setError(null);
     try {
-      const existing = myVotes.get(s.id);
-      if (existing) await removeVote(existing.id);
-      else await castVote(round.id, s.id, profile!.id);
+      if (delta > 0) await castVote(round.id, s.id, profile!.id);
+      else await removeVote(bySong.get(s.id)![0].id);
       reload();
     } catch (e) {
       setError(e);
@@ -185,28 +187,40 @@ function VotePhase(props: { round: Round; submissions: Submission[]; votes: Vote
         <strong>
           {left} of {round.votes_per_member} vote{round.votes_per_member === 1 ? '' : 's'} left
         </strong>
-        <span className="muted small">You can't vote for your own picks. Click again to take a vote back.</span>
+        <span className="muted small">
+          Use + and − to spread them out. You can put several on one song, but not on your own picks.
+        </span>
       </div>
       <ErrorNotice error={error} />
       <div className="list">
         {ordered.map((s) => {
           const isMine = s.user_id === profile?.id;
-          const voted = myVotes.has(s.id);
+          const count = bySong.get(s.id)?.length ?? 0;
+          const busy = busyId === s.id;
           return (
-            <div key={s.id} className={`card tight ${voted ? 'voted' : ''}`}>
+            <div key={s.id} className={`card tight ${count > 0 ? 'voted' : ''}`}>
               <SpotifyEmbed trackId={s.spotify_track_id} />
               <div className="row">
                 {s.note ? <p className="note grow">“{s.note}”</p> : <span className="grow" />}
                 {isMine ? (
                   <span className="muted small">Your pick</span>
                 ) : (
-                  <button
-                    className={voted ? '' : 'secondary'}
-                    disabled={busyId === s.id || (!voted && left <= 0)}
-                    onClick={() => toggle(s)}
-                  >
-                    {voted ? '★ Voted' : '☆ Vote'}
-                  </button>
+                  <div className="stepper">
+                    <button
+                      className="secondary"
+                      aria-label="Remove a vote"
+                      disabled={busy || count === 0}
+                      onClick={() => change(s, -1)}
+                    >
+                      −
+                    </button>
+                    <span className="stepper-count" aria-label={`${count} vote${count === 1 ? '' : 's'}`}>
+                      {count}
+                    </span>
+                    <button aria-label="Add a vote" disabled={busy || left <= 0} onClick={() => change(s, 1)}>
+                      +
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
@@ -217,11 +231,9 @@ function VotePhase(props: { round: Round; submissions: Submission[]; votes: Vote
   );
 }
 
-function Results(props: { round: Round; results: ResultRow[]; profiles: Profile[]; reload: () => void }) {
-  const { round, results, profiles, reload } = props;
+/** The round's playlist (made when voting starts), or a retry button for the host if that failed. */
+function PlaylistLink({ round, reload }: { round: Round; reload: () => void }) {
   const { profile } = useAuth();
-  const names = new Map(profiles.map((p) => [p.id, p.display_name]));
-  const [onlyVoted, setOnlyVoted] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
 
@@ -229,7 +241,7 @@ function Results(props: { round: Round; results: ResultRow[]; profiles: Profile[
     setBusy(true);
     setError(null);
     try {
-      await createRoundPlaylist(round, onlyVoted);
+      await createRoundPlaylist(round);
       reload();
     } catch (e) {
       setError(e);
@@ -238,28 +250,30 @@ function Results(props: { round: Round; results: ResultRow[]; profiles: Profile[
     }
   }
 
+  if (round.playlist_url) {
+    return (
+      <a className="button" href={round.playlist_url} target="_blank" rel="noreferrer">
+        Open playlist in Spotify
+      </a>
+    );
+  }
+  if (!profile?.is_host) return <p className="muted">The host hasn't created the playlist yet.</p>;
+  return (
+    <div className="card">
+      <p>No playlist yet.</p>
+      <button disabled={busy} onClick={makePlaylist}>
+        {busy ? 'Creating…' : 'Create Spotify playlist'}
+      </button>
+      <ErrorNotice error={error} />
+    </div>
+  );
+}
+
+function Results({ results, profiles }: { results: ResultRow[]; profiles: Profile[] }) {
+  const names = new Map(profiles.map((p) => [p.id, p.display_name]));
+
   return (
     <>
-      {round.playlist_url ? (
-        <a className="button" href={round.playlist_url} target="_blank" rel="noreferrer">
-          Open playlist in Spotify
-        </a>
-      ) : profile?.is_host ? (
-        <div className="card">
-          <p>No playlist yet.</p>
-          <label className="check">
-            <input type="checkbox" checked={onlyVoted} onChange={(e) => setOnlyVoted(e.target.checked)} />
-            Only include songs with at least one vote
-          </label>
-          <button disabled={busy} onClick={makePlaylist}>
-            {busy ? 'Creating…' : 'Create Spotify playlist'}
-          </button>
-          <ErrorNotice error={error} />
-        </div>
-      ) : (
-        <p className="muted">The host hasn't created the playlist yet.</p>
-      )}
-
       <h2>Results</h2>
       <div className="table-wrap">
         <table className="results">

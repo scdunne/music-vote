@@ -55,13 +55,13 @@ create table submissions (
   unique (round_id, spotify_track_id)
 );
 
+-- One row per vote. A voter may stack several votes on the same song.
 create table votes (
   id uuid primary key default gen_random_uuid(),
   round_id uuid not null references rounds(id) on delete cascade,
   submission_id uuid not null references submissions(id) on delete cascade,
   voter_id uuid not null references profiles(id) on delete cascade,
-  created_at timestamptz not null default now(),
-  unique (submission_id, voter_id)
+  created_at timestamptz not null default now()
 );
 
 create index on submissions (round_id);
@@ -142,6 +142,8 @@ begin
   if sub_round is distinct from new.round_id then
     raise exception 'Vote round does not match the submission''s round.';
   end if;
+  -- Serialize this voter's inserts so rapid "+" clicks can't race past the limit.
+  perform pg_advisory_xact_lock(hashtext(new.voter_id::text || new.round_id::text));
   select votes_per_member into lim from rounds where id = new.round_id;
   select count(*) into n from votes
     where round_id = new.round_id and voter_id = new.voter_id;

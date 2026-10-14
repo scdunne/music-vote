@@ -1,13 +1,9 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { closeRound, createRound, deleteRound, listRounds, updateRound, useAsync } from '../data';
+import { createRound, deleteRound, listRounds, startVoting, updateRound, useAsync } from '../data';
 import type { Round, RoundStatus } from '../types';
 import { ErrorNotice, PhaseBadge } from '../components/bits';
 
-const NEXT: Partial<Record<RoundStatus, { status: RoundStatus; label: string }>> = {
-  draft: { status: 'submitting', label: 'Open submissions' },
-  submitting: { status: 'voting', label: 'Start voting' },
-};
 const PREV: Partial<Record<RoundStatus, RoundStatus>> = { submitting: 'draft', voting: 'submitting' };
 
 /** <input type="datetime-local"> value -> ISO string (or null). */
@@ -36,9 +32,7 @@ export default function Host() {
 function HostControls({ round, reload }: { round: Round; reload: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
-  const [onlyVoted, setOnlyVoted] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const next = NEXT[round.status];
   const prev = PREV[round.status];
 
   async function run(action: () => Promise<unknown>) {
@@ -67,21 +61,20 @@ function HostControls({ round, reload }: { round: Round; reload: () => void }) {
         {round.songs_per_member} song(s) and {round.votes_per_member} vote(s) per member
       </p>
       <div className="row wrap">
-        {next && (
-          <button disabled={busy} onClick={() => run(() => updateRound(round.id, { status: next.status }))}>
-            {next.label}
+        {round.status === 'draft' && (
+          <button disabled={busy} onClick={() => run(() => updateRound(round.id, { status: 'submitting' }))}>
+            Open submissions
+          </button>
+        )}
+        {round.status === 'submitting' && (
+          <button disabled={busy} onClick={() => run(() => startVoting(round))}>
+            {busy ? 'Starting…' : 'Start voting and create playlist'}
           </button>
         )}
         {round.status === 'voting' && (
-          <>
-            <button disabled={busy} onClick={() => run(() => closeRound(round, onlyVoted))}>
-              {busy ? 'Closing…' : 'Close round and create playlist'}
-            </button>
-            <label className="check">
-              <input type="checkbox" checked={onlyVoted} onChange={(e) => setOnlyVoted(e.target.checked)} />
-              Only songs with votes
-            </label>
-          </>
+          <button disabled={busy} onClick={() => run(() => updateRound(round.id, { status: 'closed' }))}>
+            Close round
+          </button>
         )}
         {prev && (
           <button

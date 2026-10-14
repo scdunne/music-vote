@@ -6,7 +6,7 @@ import type { Profile, ResultRow, Round, Submission, Vote } from './types';
 /** Turns Postgres/PostgREST errors into messages fit for the UI. */
 function check<T>({ data, error }: { data: T | null; error: { code?: string; message: string } | null }): T {
   if (error) {
-    if (error.code === '23505') throw new Error('That one is already taken. Someone already picked that song, or you already voted for it.');
+    if (error.code === '23505') throw new Error('Someone already picked that song.');
     if (error.code === '42501') throw new Error("You can't do that right now. The round may have moved to the next phase.");
     throw new Error(error.message);
   }
@@ -90,23 +90,32 @@ export async function removeVote(id: string) {
   check(await supabase.from('votes').delete().eq('id', id));
 }
 
-/** Builds the results playlist in the host's Spotify account and saves its URL on the round. */
-export async function createRoundPlaylist(round: Round, onlyVoted: boolean): Promise<string> {
-  const results = await listResults(round.id);
-  const uris = results.filter((r) => !onlyVoted || r.vote_count > 0).map((r) => r.track_uri);
+/** Stable pseudo-random order so lists don't reveal submission order and don't jump on reload. */
+export function hashOrder(a: Submission, b: Submission) {
+  const h = (s: string) => [...s].reduce((acc, c) => (acc * 31 + c.charCodeAt(0)) | 0, 7);
+  return h(a.id) - h(b.id);
+}
+
+/**
+ * Builds the round's playlist in the host's Spotify account, in the same order as
+ * the voting page, and saves its URL on the round.
+ */
+export async function createRoundPlaylist(round: Round): Promise<string> {
+  const submissions = await listSubmissions(round.id);
+  const uris = [...submissions].sort(hashOrder).map((s) => s.track_uri);
   if (uris.length === 0) throw new Error('There are no songs to put in the playlist.');
-  const description = (round.description?.replace(/\s+/g, ' ') || `Results of Music Vote round #${round.number}`).slice(0, 300);
+  const description = (round.description?.replace(/\s+/g, ' ') || `Music Vote round #${round.number}`).slice(0, 300);
   const url = await createPlaylist(`Music Vote #${round.number}: ${round.theme}`, description, uris);
   await updateRound(round.id, { playlist_url: url });
   return url;
 }
 
-/** Closes the round, then builds the playlist. If the playlist step fails, the host can retry from the round page. */
-export async function closeRound(round: Round, onlyVoted: boolean): Promise<string> {
-  // Check this first so the round doesn't close without a usable Spotify token.
-  if (!hasSpotifyToken()) throw new SpotifyError(401, 'Reconnect Spotify before closing so the playlist can be created.');
-  await updateRound(round.id, { status: 'closed' });
-  return createRoundPlaylist({ ...round, status: 'closed' }, onlyVoted);
+/** Opens voting, then builds the playlist. If the playlist step fails, the host can retry from the round page. */
+export async function startVoting(round: Round): Promise<string> {
+  // Check this first so voting doesn't open without a usable Spotify token.
+  if (!hasSpotifyToken()) throw new SpotifyError(401, 'Reconnect Spotify before starting voting so the playlist can be created.');
+  await updateRound(round.id, { status: 'voting' });
+  return createRoundPlaylist({ ...round, status: 'voting' });
 }
 
 /** Minimal data-loading hook: { data, error, loading, reload }. */

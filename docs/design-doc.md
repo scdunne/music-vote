@@ -1,6 +1,6 @@
 # Music Vote: Design Doc
 
-A tiny private website where a group of 5 friends runs music "rounds". Each round has a theme, everyone submits songs found via Spotify search, everyone votes, and when the round closes the host's Spotify account gets an auto-generated playlist of the results.
+A tiny private website where a group of 5 friends runs music "rounds". Each round has a theme, everyone submits songs found via Spotify search, the host's Spotify account gets an auto-generated playlist of the submissions to listen to, and everyone votes.
 
 This document is a handoff spec for Claude Code. Build it in the milestone order at the bottom. Items marked **VERIFY** are things the author could not confirm and must be checked against current Spotify/Supabase docs before relying on them.
 
@@ -11,7 +11,7 @@ This document is a handoff spec for Claude Code. Build it in the milestone order
 **Goals**
 - Free to host and run ($0).
 - Exactly 5 users, each logging in with their own Spotify account.
-- Search Spotify for tracks, submit them to a round, vote, and auto-create a playlist from the results.
+- Search Spotify for tracks, submit them to a round, auto-create a playlist of the submissions when voting opens, and vote.
 - Static frontend (GitHub Pages) plus a hosted database (Supabase). No custom server.
 
 **Non-goals**
@@ -116,7 +116,7 @@ create table votes (
   submission_id uuid not null references submissions(id) on delete cascade,
   voter_id uuid not null references profiles(id) on delete cascade,
   created_at timestamptz not null default now(),
-  unique (submission_id, voter_id)            -- one vote per song per person
+  -- no unique (submission_id, voter_id): one row per vote, and votes can stack on a song
 );
 ```
 
@@ -204,8 +204,8 @@ During the `submitting` and `voting` phases the UI should hide who submitted wha
 
 1. **draft:** host creates a round (theme, description, limits, optional deadlines). Hidden or greyed out in the UI.
 2. **submitting:** members search Spotify and submit up to `songs_per_member` tracks. Submitters hidden.
-3. **voting:** members see all submissions (embedded Spotify players), vote for up to `votes_per_member`, none for their own. Submitters still hidden.
-4. **closed:** host clicks "Close round and create playlist". The app computes results (via `round_results`), reveals submitters and vote counts, creates a Spotify playlist in the host's account, stores `playlist_url` on the round, and everyone sees an "Open in Spotify" link.
+3. **voting:** host clicks "Start voting and create playlist". The app creates a Spotify playlist of every submission in the host's account and stores `playlist_url` on the round, so everyone can listen before voting. Members see all submissions (embedded Spotify players) and spend `votes_per_member` votes with +/− controls. They can stack several (even all) on one song, but none on their own. Submitters still hidden.
+4. **closed:** host clicks "Close round". The app computes results (via `round_results`), and reveals submitters and vote counts.
 
 Deadlines are advisory (shown as countdowns). The host advances phases manually. There is no cron or server to enforce them.
 
@@ -217,8 +217,8 @@ All calls go directly from the browser with `Authorization: Bearer <provider_tok
 
 - **Scopes requested at login:** `playlist-modify-public` and `playlist-modify-private` (needed only for the host, but requesting for all is simplest). Search needs no scope. Consider also `user-read-email` since the Supabase Spotify provider typically needs email. **VERIFY** the minimum scopes the Supabase provider needs.
 - **Search:** `GET /v1/search?q=<query>&type=track&limit=10&offset=<n>`. Debounce input about 400ms. Show title, artists, album art. On submit, store only: track id, URI, title, artists (joined string), album, image URL.
-- **Create playlist (host only, on close):** create a playlist in the host's account named like `Music Vote #<number>: <theme>`, then add the ordered track URIs. **VERIFY** the exact current endpoints and body shapes (the Feb 2026 changes touched playlist item naming). Save the returned playlist `external_urls.spotify` into `rounds.playlist_url`.
-  - Order tracks by vote count descending, ties by submission time. Optionally include only tracks with at least 1 vote, or all tracks (make it a host-side checkbox).
+- **Create playlist (host only, when voting starts):** create a playlist in the host's account named like `Music Vote #<number>: <theme>`, then add the ordered track URIs. **VERIFY** the exact current endpoints and body shapes (the Feb 2026 changes touched playlist item naming). Save the returned playlist `external_urls.spotify` into `rounds.playlist_url`.
+  - Include every submission, in the same stable shuffled order as the voting page (so the order doesn't reveal who submitted when).
   - Add at most 100 URIs per request.
 - **Playback/listening:** use Spotify embed iframes (`https://open.spotify.com/embed/track/<id>`) for track preview in submit/vote lists. No SDK needed.
 - **Error handling:** 401 re-login and retry; 403 show "Ask the host to add your Spotify email to the allowlist"; 429 back off and show a friendly message.
@@ -234,7 +234,7 @@ Routes (HashRouter):
 | `/` | Current round card with phase-aware primary action; list of past rounds |
 | `/round/:id` | Round detail. Content depends on status (submit UI, vote UI, or results) |
 | `/history` | Past rounds, playlists, winners |
-| `/host` | Host-only: create round, change phase, close and create playlist |
+| `/host` | Host-only: create round, change phase, start voting (creates the playlist), close |
 | `/login` | "Log in with Spotify" button |
 
 Key components: `TrackSearch`, `TrackCard` (with embed), `SubmissionList`, `VotePanel` (shows remaining votes), `ResultsTable`, `PhaseBadge`, `HostControls`.
@@ -267,20 +267,19 @@ On first login, upsert the user's `profiles` row from the Spotify identity (disp
 4. Host page: create and advance rounds. Round list on the home page.
 5. Submission flow with per-member limits (UI and DB trigger) and duplicate detection.
 6. Voting flow with remaining-votes counter, no-self-votes, and limit trigger.
-7. Close round: results view, reveal submitters, create the Spotify playlist, store `playlist_url`.
+7. Start voting creates the Spotify playlist and stores `playlist_url`. Close round: results view, reveal submitters.
 8. History page, polish, optional Realtime updates, countdown deadlines.
 9. Tests: at minimum, SQL-level checks (or manual scripts) that RLS blocks the cases below.
 
 **RLS acceptance checks**
 - A non-host cannot update `rounds` or create rounds.
 - A user cannot insert a submission when the round is not `submitting`, or as another user.
-- A user cannot vote outside `voting`, on their own submission, twice for one song, or beyond `votes_per_member`.
+- A user cannot vote outside `voting`, on their own submission, or beyond `votes_per_member` (stacking several votes on one song is allowed).
 - A user cannot set `is_host` on their own profile.
 
 ---
 
 ## 10. Open questions for the owner
 - Songs per member and votes per member per round (defaults: 2 and 3).
-- Should the playlist include all submissions or only voted ones?
 - Is hiding submitters in the UI enough, or should the database enforce it?
 - Does the owner count toward the 5-user limit? Check in the dashboard before inviting everyone.

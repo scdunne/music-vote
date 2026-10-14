@@ -1,6 +1,6 @@
 # Music Vote
 
-A small private site where 5 friends run themed music rounds: everyone submits songs from Spotify, everyone votes, and the host's Spotify account gets a playlist of the results. The full spec is in [docs/design-doc.md](docs/design-doc.md).
+A small private site where 5 friends run themed music rounds: everyone submits songs from Spotify, the host's Spotify account gets a playlist of them to listen to, and everyone votes. The full spec is in [docs/design-doc.md](docs/design-doc.md).
 
 It's served unlisted at **https://scdunne.github.io/music-vote/**. Nothing on the main site links to it, and it sets `noindex`. Only allowlisted members can sign in.
 
@@ -46,4 +46,5 @@ npm run dev                  # http://127.0.0.1:5173/music-vote/
 - **Spotify token expiry.** Spotify tokens last about an hour and Supabase can't refresh them, so search and playlist creation may ask you to *Reconnect Spotify*. Reconnecting takes one click.
 - **Spotify API version.** The playlist calls use the post-February-2026 endpoints, `POST /me/playlists` and `POST /playlists/{id}/items`.
 - **Votes stay private.** During voting you can only read your own votes, even from the API. Everyone's votes become visible when the round closes.
-- **Closing a round.** If playlist creation fails after a round closes, the host can retry from the round's page.
+- **Starting voting.** *Start voting* also creates the round's playlist. If that step fails, the host can retry from the round's page.
+- **Upgrading an existing database.** Run the files in `supabase/migrations/` in order. Each one is safe to run once.

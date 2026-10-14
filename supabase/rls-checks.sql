@@ -1,9 +1,20 @@
 -- RLS acceptance checks (design doc section 9). Run in the Supabase SQL editor
 -- AFTER schema.sql. Everything happens inside a transaction that is rolled
--- back, so no test data is left behind. Look for "PASS" notices; any failure
--- aborts with "FAIL: ...".
+-- back, so no test data is left behind.
+--
+-- Success: the results panel shows a table of passed checks.
+-- Failure: the script stops with a red "ERROR: FAIL: ..." message.
 
 begin;
+
+-- Results table. Granted to "authenticated" because most checks run as that role.
+create temp table test_results (n serial, check_name text, outcome text);
+grant all on test_results to authenticated;
+grant all on sequence test_results_n_seq to authenticated;
+
+create function pg_temp.pass(label text, detail text) returns void language sql as $$
+  insert into test_results (check_name, outcome) values (label, 'PASS ' || detail)
+$$;
 
 -- Fixtures (as postgres) ----------------------------------------------------
 insert into auth.users (id, email) values
@@ -21,7 +32,7 @@ insert into profiles (id, display_name, is_host) values
   ('00000000-0000-0000-0000-0000000000c3', 'Bob', false);
 
 insert into rounds (id, theme, status, songs_per_member, votes_per_member) values
-  ('00000000-0000-0000-0000-000000000001', 'Test round', 'submitting', 1, 1);
+  ('00000000-0000-0000-0000-000000000001', 'Test round', 'submitting', 1, 2);
 
 -- Helpers ---------------------------------------------------------------------
 create function pg_temp.act_as(who text) returns void language plpgsql as $$
@@ -46,11 +57,11 @@ begin
     execute stmt;
     get diagnostics rc = row_count;
   exception when others then
-    raise notice 'PASS (blocked: %): %', sqlerrm, label;
+    perform pg_temp.pass(label, '(blocked: ' || sqlerrm || ')');
     return;
   end;
   if rc = 0 then
-    raise notice 'PASS (0 rows): %', label;
+    perform pg_temp.pass(label, '(blocked: 0 rows affected)');
   else
     raise exception 'FAIL: % was allowed', label;
   end if;
@@ -62,7 +73,7 @@ begin
   execute stmt;
   get diagnostics rc = row_count;
   if rc = 0 then raise exception 'FAIL: % affected no rows', label; end if;
-  raise notice 'PASS (allowed): %', label;
+  perform pg_temp.pass(label, '(allowed, as expected)');
 end $$;
 
 create function pg_temp.submit(who text, track text) returns text language sql as $$
@@ -100,7 +111,7 @@ do $$ begin
   if (select is_host from profiles where display_name = 'Alice') then
     raise exception 'FAIL: user set is_host on own profile';
   end if;
-  raise notice 'PASS: user cannot set is_host on own profile';
+  perform pg_temp.pass('user cannot set is_host on own profile', '');
 end $$;
 
 -- Non-members -----------------------------------------------------------------
@@ -109,7 +120,7 @@ do $$ begin
   if (select count(*) from rounds) > 0 then
     raise exception 'FAIL: non-member can read rounds';
   end if;
-  raise notice 'PASS: non-member sees no rounds';
+  perform pg_temp.pass('non-member sees no rounds', '');
 end $$;
 select pg_temp.expect_blocked('non-member creates a profile',
   $q$insert into profiles (id, display_name) values (auth.uid(), 'Mallory')$q$);
@@ -137,7 +148,7 @@ select pg_temp.act_as('alice');
 select pg_temp.expect_blocked('submit while voting', pg_temp.submit('alice', 'a3'));
 select pg_temp.expect_blocked('vote on own submission', pg_temp.vote('alice', 'a1'));
 select pg_temp.expect_ok('alice votes for bob', pg_temp.vote('alice', 'b1'));
-select pg_temp.expect_blocked('vote twice for one song', pg_temp.vote('alice', 'b1'));
+select pg_temp.expect_ok('alice stacks a second vote on bob', pg_temp.vote('alice', 'b1'));
 select pg_temp.expect_blocked('alice exceeds votes_per_member', pg_temp.vote('alice', 'h1'));
 reset role;
 select pg_temp.act_as('bob');
@@ -145,7 +156,7 @@ do $$ begin
   if (select count(*) from votes) > 0 then
     raise exception 'FAIL: bob can see other people''s votes during voting';
   end if;
-  raise notice 'PASS: votes hidden from others during voting';
+  perform pg_temp.pass('votes hidden from others during voting', '');
 end $$;
 reset role;
 
@@ -155,11 +166,14 @@ reset role;
 select pg_temp.act_as('bob');
 select pg_temp.expect_blocked('vote after close', pg_temp.vote('bob', 'a1'));
 do $$ begin
-  if (select count(*) from votes) <> 1 then
+  if (select count(*) from votes) <> 2 then
     raise exception 'FAIL: votes not visible after close';
   end if;
-  raise notice 'PASS: votes visible after close';
+  perform pg_temp.pass('votes visible after close', '');
 end $$;
 reset role;
+
+-- Shown in the results panel (the editor displays the last query's rows).
+select n as "#", check_name, outcome from test_results order by n;
 
 rollback;
