@@ -59,15 +59,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
       const meta = session.user.user_metadata ?? {};
-      await supabase.from('profiles').upsert(
-        {
-          id: session.user.id,
-          spotify_id: meta.provider_id ?? meta.sub ?? null,
-          display_name: meta.full_name ?? meta.name ?? session.user.email ?? 'Member',
-          avatar_url: meta.avatar_url ?? meta.picture ?? null,
-        },
-        { onConflict: 'id' },
-      );
+      const spotifyName = meta.full_name ?? meta.name;
+      if (spotifyName) {
+        // Signed in through Spotify (the host): keep name and avatar in sync.
+        await supabase.from('profiles').upsert(
+          {
+            id: session.user.id,
+            spotify_id: meta.provider_id ?? meta.sub ?? null,
+            display_name: spotifyName,
+            avatar_url: meta.avatar_url ?? meta.picture ?? null,
+          },
+          { onConflict: 'id' },
+        );
+      } else {
+        // Email login: create the profile once, never overwrite an existing name.
+        await supabase.from('profiles').upsert(
+          { id: session.user.id, display_name: session.user.email?.split('@')[0] ?? 'Member' },
+          { onConflict: 'id', ignoreDuplicates: true },
+        );
+      }
       const { data: row } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
       if (!cancelled) {
         setIsMember(true);

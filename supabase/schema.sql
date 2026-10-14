@@ -1,7 +1,7 @@
 -- Music Vote schema. Paste into the Supabase SQL editor and run once.
 -- Based on section 4 of the design doc, with two additions:
---   * allowed_emails: anyone with a Spotify account can sign in to Supabase,
---     so every policy also requires the user's email to be on this list.
+--   * allowed_emails: anyone can request an email login link, so every
+--     policy also requires the user's email to be on this list.
 --   * votes are only readable by their owner until the round closes, so
 --     nobody can peek at standings during voting.
 
@@ -9,7 +9,7 @@
 -- Tables
 -- ---------------------------------------------------------------------------
 
--- Member allowlist (use the same emails you add in the Spotify dashboard).
+-- Member allowlist: the emails members log in with.
 -- No policies, so clients can never read or write it; edit in the dashboard.
 create table allowed_emails (
   email text primary key

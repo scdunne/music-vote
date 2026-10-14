@@ -41,6 +41,7 @@ img { max-width: 100%; }
 .container { max-width: 760px; margin: 0 auto; padding: 1rem 16px 3rem; }
 .narrow { max-width: 460px; }
 .login { text-align: center; padding-top: 18vh; }
+.login form { display: flex; flex-direction: column; gap: 0.75rem; max-width: 22rem; margin: 0 auto; }
 .muted { color: var(--muted); }
 .small { font-size: 0.85rem; }
 .spacer, .grow { flex: 1; }

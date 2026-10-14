@@ -1,7 +1,7 @@
-import { useState } from 'react';
-import { signInWithSpotify } from '../spotify';
+import { useState, type FormEvent } from 'react';
+import { sendLoginLink } from '../spotify';
 
-/** A failed OAuth round trip comes back as "?error=...&error_description=...". */
+/** A failed auth round trip comes back as "?error=...&error_description=...". */
 function redirectError(): string | null {
   const params = new URLSearchParams(window.location.search);
   const error = params.get('error_description') ?? params.get('error');
@@ -9,17 +9,48 @@ function redirectError(): string | null {
 }
 
 export default function Login() {
+  const [email, setEmail] = useState('');
+  const [sentTo, setSentTo] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(redirectError);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await sendLoginLink(email.trim());
+      setSentTo(email.trim());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <main className="container narrow login">
       <h1>Music Vote</h1>
       <p className="muted">Pick songs for a theme, vote on everyone's picks, get a playlist out of it.</p>
-      <button
-        className="big"
-        onClick={() => signInWithSpotify().catch((e: Error) => setError(e.message))}
-      >
-        Log in with Spotify
-      </button>
+      {sentTo ? (
+        <p>
+          Check <strong>{sentTo}</strong> for a login link. Open it in this browser.
+        </p>
+      ) : (
+        <form onSubmit={submit}>
+          <input
+            type="email"
+            required
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            autoFocus
+          />
+          <button className="big" type="submit" disabled={busy}>
+            {busy ? 'Sending…' : 'Email me a login link'}
+          </button>
+        </form>
+      )}
       {error && <p className="error">{error}</p>}
     </main>
   );

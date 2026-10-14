@@ -1,7 +1,9 @@
 import { supabase } from './supabase';
 
-// user-read-email: Supabase needs an email to create the user.
-// playlist-modify-*: only the host uses these, but requesting for everyone is simplest.
+// Only the host connects Spotify, to create playlists. Members sign in by email
+// and search through the spotify-search edge function, so they never count
+// toward Spotify's development-mode user cap.
+// user-read-email: Supabase needs an email for the Spotify identity.
 const SCOPES = 'user-read-email playlist-modify-public playlist-modify-private';
 const TOKEN_KEY = 'mv.spotifyToken';
 const RETURN_KEY = 'mv.returnTo';
@@ -46,15 +48,30 @@ export function hasSpotifyToken(): boolean {
   return Boolean(stored && stored.expiresAt > Date.now());
 }
 
-export async function signInWithSpotify() {
+/**
+ * Gets the host a fresh Spotify token. The first time, this links a Spotify
+ * identity to the host's email account (needs manual linking enabled in
+ * Supabase). After that, signing in with Spotify lands on the same account.
+ */
+export async function connectSpotify() {
   sessionStorage.setItem(RETURN_KEY, window.location.hash);
-  await supabase.auth.signInWithOAuth({
-    provider: 'spotify',
-    options: {
-      scopes: SCOPES,
-      redirectTo: window.location.origin + import.meta.env.BASE_URL,
-    },
+  const options = { scopes: SCOPES, redirectTo: window.location.origin + import.meta.env.BASE_URL };
+  const { data } = await supabase.auth.getUser();
+  const linked = data.user?.identities?.some((i) => i.provider === 'spotify');
+  const { error } = linked
+    ? await supabase.auth.signInWithOAuth({ provider: 'spotify', options })
+    : await supabase.auth.linkIdentity({ provider: 'spotify', options });
+  if (error) throw error;
+}
+
+/** Members log in with a one-time link sent to their (allowlisted) email. */
+export async function sendLoginLink(email: string) {
+  sessionStorage.setItem(RETURN_KEY, window.location.hash);
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: { emailRedirectTo: window.location.origin + import.meta.env.BASE_URL },
   });
+  if (error) throw error;
 }
 
 /** The route the user was on before the OAuth redirect, consumed once. */
@@ -88,7 +105,7 @@ async function spotifyFetch<T>(path: string, init: RequestInit = {}): Promise<T>
     throw new SpotifyError(401, 'Your Spotify connection expired. Reconnect to continue.');
   }
   if (res.status === 403) {
-    throw new SpotifyError(403, "Spotify refused the request. Ask the host to add your Spotify email to the app's allowlist.");
+    throw new SpotifyError(403, "Spotify refused the request. Check that your Spotify email is on the app's allowlist in the Developer Dashboard.");
   }
   if (res.status === 429) {
     const wait = res.headers.get('Retry-After');
@@ -116,15 +133,20 @@ export interface SearchPage {
 /** Spotify caps search at 10 results per request in development mode. */
 export const SEARCH_PAGE_SIZE = 10;
 
+/** Searches with the app's own token (via the edge function), not the user's. */
 export async function searchTracks(query: string, offset: number): Promise<SearchPage> {
-  const params = new URLSearchParams({
-    q: query,
-    type: 'track',
-    limit: String(SEARCH_PAGE_SIZE),
-    offset: String(offset),
+  const { data, error } = await supabase.functions.invoke<SearchPage>('spotify-search', {
+    body: { q: query, offset },
   });
-  const data = await spotifyFetch<{ tracks: SearchPage }>(`/search?${params}`);
-  return data.tracks;
+  if (!error) return data!;
+  const res: Response | undefined = error.context instanceof Response ? error.context : undefined;
+  if (res?.status === 429) {
+    const wait = res.headers.get('Retry-After');
+    throw new SpotifyError(429, `Spotify is rate-limiting us. Try again in ${wait ? `${wait} seconds` : 'a minute'}.`);
+  }
+  const body = await res?.json().catch(() => null);
+  // A plain Error, so a failed search never offers a "Connect Spotify" button.
+  throw new Error(body?.error ?? 'Search is unavailable right now.');
 }
 
 /** Album images are largest-first; the middle one (~300px) suits cards. */

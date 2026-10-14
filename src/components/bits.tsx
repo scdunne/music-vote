@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { signInWithSpotify, SpotifyError } from '../spotify';
+import { connectSpotify, SpotifyError } from '../spotify';
 import type { RoundStatus } from '../types';
 
 const PHASE_LABELS: Record<RoundStatus, string> = {
@@ -38,7 +38,7 @@ export function Countdown({ deadline, label }: { deadline: string | null; label:
   );
 }
 
-/** Error box; for expired Spotify tokens it offers a one-click reconnect. */
+/** Error box; when the host's Spotify token is missing or expired it offers a one-click connect. */
 export function ErrorNotice({ error }: { error: unknown }) {
   if (!error) return null;
   const message = error instanceof Error ? error.message : String(error);
@@ -47,8 +47,8 @@ export function ErrorNotice({ error }: { error: unknown }) {
     <div className="error">
       {message}{' '}
       {needsReconnect && (
-        <button className="small" onClick={() => signInWithSpotify()}>
-          Reconnect Spotify
+        <button className="small" onClick={() => connectSpotify()}>
+          Connect Spotify
         </button>
       )}
     </div>
