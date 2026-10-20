@@ -34,6 +34,8 @@ create table rounds (
   status round_status not null default 'draft',
   songs_per_member int not null default 2 check (songs_per_member > 0),
   votes_per_member int not null default 3 check (votes_per_member > 0),
+  -- When true, starting voting sets votes_per_member to 2 x (other submitters).
+  auto_votes boolean not null default false,
   submit_deadline timestamptz,
   vote_deadline timestamptz,
   playlist_url text,

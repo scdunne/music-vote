@@ -16,6 +16,7 @@ export interface Round {
   status: RoundStatus;
   songs_per_member: number;
   votes_per_member: number;
+  auto_votes: boolean;
   submit_deadline: string | null;
   vote_deadline: string | null;
   playlist_url: string | null;

@@ -58,7 +58,11 @@ function HostControls({ round, reload }: { round: Round; reload: () => void }) {
         </Link>
       </div>
       <p className="muted small">
-        {round.songs_per_member} song(s) and {round.votes_per_member} vote(s) per member
+        {round.songs_per_member} song(s) and{' '}
+        {round.auto_votes && round.status !== 'voting' && round.status !== 'closed'
+          ? '2 votes per other submitter'
+          : `${round.votes_per_member} vote(s)`}{' '}
+        per member
       </p>
       <div className="row wrap">
         {round.status === 'draft' && (
@@ -111,6 +115,7 @@ function NewRoundForm({ onCreated }: { onCreated: () => void }) {
   const [description, setDescription] = useState('');
   const [songs, setSongs] = useState(2);
   const [votes, setVotes] = useState(3);
+  const [autoVotes, setAutoVotes] = useState(true);
   const [submitDeadline, setSubmitDeadline] = useState('');
   const [voteDeadline, setVoteDeadline] = useState('');
   const [busy, setBusy] = useState(false);
@@ -126,6 +131,7 @@ function NewRoundForm({ onCreated }: { onCreated: () => void }) {
         description: description.trim() || null,
         songs_per_member: songs,
         votes_per_member: votes,
+        auto_votes: autoVotes,
         submit_deadline: toIso(submitDeadline),
         vote_deadline: toIso(voteDeadline),
       });
@@ -159,9 +165,20 @@ function NewRoundForm({ onCreated }: { onCreated: () => void }) {
         </label>
         <label>
           Votes per member
-          <input type="number" min={1} max={20} value={votes} onChange={(e) => setVotes(Number(e.target.value))} />
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={votes}
+            disabled={autoVotes}
+            onChange={(e) => setVotes(Number(e.target.value))}
+          />
         </label>
       </div>
+      <label className="check">
+        <input type="checkbox" checked={autoVotes} onChange={(e) => setAutoVotes(e.target.checked)} />
+        Set votes when voting starts: 2 per other submitter (4 submitters means 6 votes each)
+      </label>
       <div className="row wrap">
         <label>
           Submission deadline (optional)

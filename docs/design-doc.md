@@ -90,6 +90,7 @@ create table rounds (
   status round_status not null default 'draft',
   songs_per_member int not null default 2,
   votes_per_member int not null default 3,
+  auto_votes boolean not null default false,  -- set votes_per_member when voting starts
   submit_deadline timestamptz,
   vote_deadline timestamptz,
   playlist_url text,
@@ -205,7 +206,7 @@ During the `submitting` and `voting` phases the UI should hide who submitted wha
 
 1. **draft:** host creates a round (theme, description, limits, optional deadlines). Hidden or greyed out in the UI.
 2. **submitting:** members search Spotify and submit up to `songs_per_member` tracks. Submitters hidden.
-3. **voting:** host clicks "Start voting and create playlist". The app creates a Spotify playlist of every submission in the host's account and stores `playlist_url` on the round, so everyone can listen before voting. Members see all submissions (embedded Spotify players) and spend `votes_per_member` votes with +/− controls. They can stack several (even all) on one song, but none on their own. Submitters still hidden.
+3. **voting:** host clicks "Start voting and create playlist". The app creates a Spotify playlist of every submission in the host's account and stores `playlist_url` on the round, so everyone can listen before voting. If the round has `auto_votes` on (the default for new rounds), the same step sets `votes_per_member` to 2 × (number of submitters − 1), with a minimum of 2. Members see all submissions (embedded Spotify players) and spend `votes_per_member` votes with +/− controls. They can stack several (even all) on one song, but none on their own. Submitters still hidden.
 4. **closed:** host clicks "Close round". The app computes results (via `round_results`), and reveals submitters and vote counts.
 
 Deadlines are advisory (shown as countdowns). The host advances phases manually. There is no cron or server to enforce them.

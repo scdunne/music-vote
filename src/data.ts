@@ -47,7 +47,7 @@ export async function listResults(roundId: string): Promise<ResultRow[]> {
 
 export type RoundInput = Pick<
   Round,
-  'theme' | 'description' | 'songs_per_member' | 'votes_per_member' | 'submit_deadline' | 'vote_deadline'
+  'theme' | 'description' | 'songs_per_member' | 'votes_per_member' | 'auto_votes' | 'submit_deadline' | 'vote_deadline'
 >;
 
 export async function createRound(input: RoundInput): Promise<Round> {
@@ -114,8 +114,16 @@ export async function createRoundPlaylist(round: Round): Promise<string> {
 export async function startVoting(round: Round): Promise<string> {
   // Check this first so voting doesn't open without a usable Spotify token.
   if (!hasSpotifyToken()) throw new SpotifyError(401, 'Reconnect Spotify before starting voting so the playlist can be created.');
-  await updateRound(round.id, { status: 'voting' });
-  return createRoundPlaylist({ ...round, status: 'voting' });
+  const patch: Partial<Round> = { status: 'voting' };
+  if (round.auto_votes) patch.votes_per_member = await autoVoteCount(round.id);
+  await updateRound(round.id, patch);
+  return createRoundPlaylist({ ...round, ...patch });
+}
+
+/** 2 votes per other submitter, e.g. 4 submitters -> 6 votes each. At least 2. */
+async function autoVoteCount(roundId: string): Promise<number> {
+  const submitters = new Set((await listSubmissions(roundId)).map((s) => s.user_id));
+  return 2 * Math.max(submitters.size - 1, 1);
 }
 
 /** Minimal data-loading hook: { data, error, loading, reload }. */

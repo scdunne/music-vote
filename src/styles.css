@@ -98,6 +98,7 @@ input, textarea {
 }
 textarea { min-height: 4rem; margin: 0.6rem 0; }
 .form label { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.7rem; flex: 1; min-width: 12rem; }
+.form label.check { flex-direction: row; align-items: center; gap: 0.5rem; }
 label.check { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
 label.check input { width: auto; }
 
