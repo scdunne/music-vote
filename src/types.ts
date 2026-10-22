@@ -58,3 +58,7 @@ export interface ResultRow {
   created_at: string;
   vote_count: number;
 }
+
+export interface Settings {
+  highlights_released: boolean;
+}

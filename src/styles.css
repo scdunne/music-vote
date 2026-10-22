@@ -145,3 +145,11 @@ label.check input { width: auto; }
 table.results { width: 100%; border-collapse: collapse; }
 .results th, .results td { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
 .results .num { text-align: right; }
+
+.member { display: inline-flex; align-items: center; gap: 0.5rem; }
+.member .avatar { width: 24px; height: 24px; background: var(--border); display: inline-block; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 0.6rem; }
+.stat-grid .card { display: flex; flex-direction: column; gap: 0.2rem; }
+.top-song-meta { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.vote-grid th, .vote-grid td { white-space: nowrap; font-variant-numeric: tabular-nums; }
+.vote-grid tbody th { font-weight: 600; }

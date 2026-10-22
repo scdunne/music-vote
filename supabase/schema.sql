@@ -42,6 +42,13 @@ create table rounds (
   created_at timestamptz not null default now()
 );
 
+-- Site-wide settings. Exactly one row; only the host can change it.
+create table settings (
+  id boolean primary key default true check (id),  -- only one row can exist
+  highlights_released boolean not null default false
+);
+insert into settings default values;
+
 create table submissions (
   id uuid primary key default gen_random_uuid(),
   round_id uuid not null references rounds(id) on delete cascade,
@@ -168,6 +175,7 @@ alter table profiles       enable row level security;
 alter table rounds         enable row level security;
 alter table submissions    enable row level security;
 alter table votes          enable row level security;
+alter table settings       enable row level security;
 
 -- profiles
 create policy "profiles read" on profiles for select to authenticated
@@ -182,6 +190,13 @@ create policy "profiles update" on profiles for update to authenticated
 create policy "rounds read" on rounds for select to authenticated
   using (is_member() and (status <> 'draft' or is_host()));
 create policy "rounds write" on rounds for all to authenticated
+  using (is_member() and is_host())
+  with check (is_member() and is_host());
+
+-- settings: members read; only the host changes them
+create policy "settings read" on settings for select to authenticated
+  using (is_member());
+create policy "settings update" on settings for update to authenticated
   using (is_member() and is_host())
   with check (is_member() and is_host());
 

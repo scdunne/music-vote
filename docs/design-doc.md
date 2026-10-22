@@ -236,6 +236,7 @@ Routes (HashRouter):
 | `/` | Current round card with phase-aware primary action; list of past rounds |
 | `/round/:id` | Round detail. Content depends on status (submit UI, vote UI, or results) |
 | `/history` | Past rounds, playlists, winners |
+| `/stats` | All-time stats from closed rounds: leaderboard, highlights, who votes for whom, biggest fans |
 | `/host` | Host-only: create round, change phase, start voting (creates the playlist), close |
 | `/login` | "Log in with Spotify" button |
 

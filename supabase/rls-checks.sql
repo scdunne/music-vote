@@ -1,6 +1,8 @@
 -- RLS acceptance checks (design doc section 9). Run in the Supabase SQL editor
 -- AFTER schema.sql. Everything happens inside a transaction that is rolled
--- back, so no test data is left behind.
+-- back, so no test data is left behind. Safe to run on a live database: every
+-- check that touches rounds or votes is limited to the test round, so real
+-- rounds never affect the results.
 --
 -- Success: the results panel shows a table of passed checks.
 -- Failure: the script stops with a red "ERROR: FAIL: ..." message.
@@ -100,9 +102,27 @@ $$;
 -- Rounds ----------------------------------------------------------------------
 select pg_temp.act_as('alice');
 select pg_temp.expect_blocked('non-host updates a round',
-  $q$update rounds set theme = 'hacked'$q$);
+  $q$update rounds set theme = 'hacked' where id = '00000000-0000-0000-0000-000000000001'$q$);
 select pg_temp.expect_blocked('non-host creates a round',
   $q$insert into rounds (theme) values ('mine')$q$);
+
+-- Settings ------------------------------------------------------------------
+select pg_temp.expect_blocked('non-host releases highlights',
+  $q$update settings set highlights_released = true$q$);
+reset role;
+select pg_temp.act_as('mallory');
+do $$ begin
+  if (select count(*) from settings) > 0 then
+    raise exception 'FAIL: non-member can read settings';
+  end if;
+  perform pg_temp.pass('non-member cannot read settings', '');
+end $$;
+reset role;
+select pg_temp.act_as('host');
+select pg_temp.expect_ok('host releases highlights',
+  $q$update settings set highlights_released = true$q$);
+reset role;
+select pg_temp.act_as('alice');
 
 -- is_host protection ----------------------------------------------------------
 update profiles set is_host = true where id = auth.uid();
@@ -140,7 +160,7 @@ select pg_temp.act_as('host');
 select pg_temp.expect_ok('host submits', pg_temp.submit('host', 'h1'));
 select pg_temp.expect_blocked('vote while submitting', pg_temp.vote('host', 'a1'));
 select pg_temp.expect_ok('host opens voting',
-  $q$update rounds set status = 'voting'$q$);
+  $q$update rounds set status = 'voting' where id = '00000000-0000-0000-0000-000000000001'$q$);
 reset role;
 
 -- Votes -----------------------------------------------------------------------
@@ -153,7 +173,7 @@ select pg_temp.expect_blocked('alice exceeds votes_per_member', pg_temp.vote('al
 reset role;
 select pg_temp.act_as('bob');
 do $$ begin
-  if (select count(*) from votes) > 0 then
+  if (select count(*) from votes where round_id = '00000000-0000-0000-0000-000000000001') > 0 then
     raise exception 'FAIL: bob can see other people''s votes during voting';
   end if;
   perform pg_temp.pass('votes hidden from others during voting', '');
@@ -161,12 +181,12 @@ end $$;
 reset role;
 
 select pg_temp.act_as('host');
-select pg_temp.expect_ok('host closes round', $q$update rounds set status = 'closed'$q$);
+select pg_temp.expect_ok('host closes round', $q$update rounds set status = 'closed' where id = '00000000-0000-0000-0000-000000000001'$q$);
 reset role;
 select pg_temp.act_as('bob');
 select pg_temp.expect_blocked('vote after close', pg_temp.vote('bob', 'a1'));
 do $$ begin
-  if (select count(*) from votes) <> 2 then
+  if (select count(*) from votes where round_id = '00000000-0000-0000-0000-000000000001') <> 2 then
     raise exception 'FAIL: votes not visible after close';
   end if;
   perform pg_temp.pass('votes visible after close', '');

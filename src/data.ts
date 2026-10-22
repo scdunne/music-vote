@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { supabase } from './supabase';
 import { createPlaylist, hasSpotifyToken, SpotifyError, type SpotifyTrack, albumImage } from './spotify';
-import type { Profile, ResultRow, Round, Submission, Vote } from './types';
+import type { Profile, ResultRow, Round, Settings, Submission, Vote } from './types';
 
 /** Turns Postgres/PostgREST errors into messages fit for the UI. */
 function check<T>({ data, error }: { data: T | null; error: { code?: string; message: string } | null }): T {
@@ -43,6 +43,37 @@ export async function listResults(roundId: string): Promise<ResultRow[]> {
       .order('vote_count', { ascending: false })
       .order('created_at', { ascending: true }),
   );
+}
+
+export async function getSettings(): Promise<Settings> {
+  return check(await supabase.from('settings').select('highlights_released').single());
+}
+
+/** Host only (RLS enforces it). */
+export async function updateSettings(patch: Partial<Settings>): Promise<void> {
+  check(await supabase.from('settings').update(patch).eq('id', true));
+}
+
+/** PostgREST returns at most 1000 rows per request, so page through big tables. */
+async function selectAll<T>(table: 'submissions' | 'votes', roundIds: string[]): Promise<T[]> {
+  const PAGE = 1000;
+  const rows: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const page = check<T[]>(
+      await supabase.from(table).select('*').in('round_id', roundIds).order('id').range(from, from + PAGE - 1),
+    );
+    rows.push(...page);
+    if (page.length < PAGE) return rows;
+  }
+}
+
+/** Closed rounds with all their submissions and votes, for the all-time stats. */
+export async function loadClosedRoundData() {
+  const rounds = (await listRounds()).filter((r) => r.status === 'closed');
+  if (rounds.length === 0) return { rounds, submissions: [] as Submission[], votes: [] as Vote[] };
+  const ids = rounds.map((r) => r.id);
+  const [submissions, votes] = await Promise.all([selectAll<Submission>('submissions', ids), selectAll<Vote>('votes', ids)]);
+  return { rounds, submissions, votes };
 }
 
 export type RoundInput = Pick<

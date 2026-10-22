@@ -7,6 +7,7 @@ import Home from './pages/Home';
 import Login from './pages/Login';
 import RoundPage from './pages/RoundPage';
 import History from './pages/History';
+import Stats from './pages/Stats';
 import Host from './pages/Host';
 
 export default function App() {
@@ -53,6 +54,7 @@ export default function App() {
             Music Vote
           </NavLink>
           <NavLink to="/history">History</NavLink>
+          <NavLink to="/stats">Stats</NavLink>
           {profile?.is_host && <NavLink to="/host">Host</NavLink>}
           <span className="spacer" />
           {profile?.avatar_url && <img className="avatar" src={profile.avatar_url} alt="" />}
@@ -67,6 +69,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/round/:id" element={<RoundPage />} />
           <Route path="/history" element={<History />} />
+          <Route path="/stats" element={<Stats />} />
           <Route path="/host" element={profile?.is_host ? <Host /> : <Navigate to="/" replace />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
