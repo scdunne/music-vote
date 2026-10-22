@@ -145,6 +145,7 @@ label.check input { width: auto; }
 table.results { width: 100%; border-collapse: collapse; }
 .results th, .results td { text-align: left; padding: 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
 .results .num { text-align: right; }
+.voters { margin: 0.3rem 0 0; }
 
 .member { display: inline-flex; align-items: center; gap: 0.5rem; }
 .member .avatar { width: 24px; height: 24px; background: var(--border); display: inline-block; }

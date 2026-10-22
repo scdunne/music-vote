@@ -61,7 +61,7 @@ export default function RoundPage() {
       {round.status === 'closed' && (
         <>
           <PlaylistLink round={round} reload={reload} />
-          <Results results={data.results} profiles={data.profiles} />
+          <Results results={data.results} votes={data.votes} profiles={data.profiles} />
         </>
       )}
     </>
@@ -269,8 +269,22 @@ function PlaylistLink({ round, reload }: { round: Round; reload: () => void }) {
   );
 }
 
-function Results({ results, profiles }: { results: ResultRow[]; profiles: Profile[] }) {
+/** For each submission: who voted for it and how many votes each gave, biggest first. */
+function votersBySong(votes: Vote[]): Map<string, [string, number][]> {
+  const counts = new Map<string, Map<string, number>>();
+  for (const v of votes) {
+    let song = counts.get(v.submission_id);
+    if (!song) counts.set(v.submission_id, (song = new Map()));
+    song.set(v.voter_id, (song.get(v.voter_id) ?? 0) + 1);
+  }
+  return new Map([...counts].map(([id, song]) => [id, [...song].sort((a, b) => b[1] - a[1])]));
+}
+
+function Results(props: { results: ResultRow[]; votes: Vote[]; profiles: Profile[] }) {
+  const { results, votes, profiles } = props;
   const names = new Map(profiles.map((p) => [p.id, p.display_name]));
+  // The round is closed, so RLS returns everyone's votes.
+  const voters = votersBySong(votes);
 
   return (
     <>
@@ -292,6 +306,17 @@ function Results({ results, profiles }: { results: ResultRow[]; profiles: Profil
                 <td>
                   <TrackRow title={r.title} artists={r.artists} imageUrl={r.image_url} />
                   {r.note && <p className="note">“{r.note}”</p>}
+                  {voters.has(r.submission_id) && (
+                    <p className="voters small">
+                      <span className="muted">Votes from </span>
+                      {voters.get(r.submission_id)!.map(([voter, n], j) => (
+                        <span key={voter}>
+                          {j > 0 && <span className="muted"> · </span>}
+                          {names.get(voter) ?? 'Unknown'} <span className="muted">×{n}</span>
+                        </span>
+                      ))}
+                    </p>
+                  )}
                 </td>
                 <td>{names.get(r.user_id) ?? 'Unknown'}</td>
                 <td className="num">{r.vote_count}</td>
