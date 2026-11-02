@@ -178,6 +178,22 @@ do $$ begin
   end if;
   perform pg_temp.pass('votes hidden from others during voting', '');
 end $$;
+do $$ begin
+  if exists (select 1 from vote_progress('00000000-0000-0000-0000-000000000001')) then
+    raise exception 'FAIL: non-host can see vote progress';
+  end if;
+  perform pg_temp.pass('vote progress hidden from non-hosts', '');
+end $$;
+reset role;
+
+select pg_temp.act_as('host');
+do $$ begin
+  if (select votes_cast from vote_progress('00000000-0000-0000-0000-000000000001')
+      where voter_id = '00000000-0000-0000-0000-0000000000b2') is distinct from 2 then
+    raise exception 'FAIL: host cannot see vote progress';
+  end if;
+  perform pg_temp.pass('host sees vote counts per member', '');
+end $$;
 reset role;
 
 select pg_temp.act_as('host');

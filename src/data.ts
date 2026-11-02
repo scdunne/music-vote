@@ -34,6 +34,12 @@ export async function listVotes(roundId: string): Promise<Vote[]> {
   return check(await supabase.from('votes').select('*').eq('round_id', roundId));
 }
 
+/** Host only: votes cast so far by each member who has voted (counts, not songs). */
+export async function getVoteProgress(roundId: string): Promise<Map<string, number>> {
+  const rows = check<{ voter_id: string; votes_cast: number }[]>(await supabase.rpc('vote_progress', { r: roundId }));
+  return new Map(rows.map((r) => [r.voter_id, r.votes_cast]));
+}
+
 export async function listResults(roundId: string): Promise<ResultRow[]> {
   return check(
     await supabase

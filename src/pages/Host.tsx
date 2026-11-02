@@ -1,6 +1,15 @@
 import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
-import { createRound, deleteRound, listRounds, startVoting, updateRound, useAsync } from '../data';
+import {
+  createRound,
+  deleteRound,
+  getVoteProgress,
+  listProfiles,
+  listRounds,
+  startVoting,
+  updateRound,
+  useAsync,
+} from '../data';
 import type { Round, RoundStatus } from '../types';
 import { ErrorNotice, PhaseBadge } from '../components/bits';
 
@@ -64,6 +73,7 @@ function HostControls({ round, reload }: { round: Round; reload: () => void }) {
           : `${round.votes_per_member} vote(s)`}{' '}
         per member
       </p>
+      {round.status === 'voting' && <VoteProgress round={round} />}
       <div className="row wrap">
         {round.status === 'draft' && (
           <button disabled={busy} onClick={() => run(() => updateRound(round.id, { status: 'submitting' }))}>
@@ -106,6 +116,46 @@ function HostControls({ round, reload }: { round: Round; reload: () => void }) {
           ))}
       </div>
       <ErrorNotice error={error} />
+    </div>
+  );
+}
+
+/** Who has used all their votes, so the host knows when to close the round. */
+function VoteProgress({ round }: { round: Round }) {
+  const { data, error, loading, reload } = useAsync(
+    () => Promise.all([getVoteProgress(round.id), listProfiles()]),
+    [round.id],
+  );
+  if (error) return <ErrorNotice error={error} />;
+  if (!data) return null;
+
+  const [progress, profiles] = data;
+  const members = profiles
+    .map((p) => ({ ...p, cast: progress.get(p.id) ?? 0 }))
+    .sort((a, b) => a.cast - b.cast || a.display_name.localeCompare(b.display_name));
+  const done = members.filter((m) => m.cast >= round.votes_per_member).length;
+
+  return (
+    <div>
+      <div className="row">
+        <strong>
+          {done} of {members.length} done voting
+        </strong>
+        <span className="spacer" />
+        <button className="secondary small" disabled={loading} onClick={reload}>
+          Refresh
+        </button>
+      </div>
+      <ul className="plain small">
+        {members.map((m) => (
+          <li key={m.id} className={m.cast >= round.votes_per_member ? '' : 'muted'}>
+            {m.cast >= round.votes_per_member ? '✓' : '·'} {m.display_name}{' '}
+            <span className="muted">
+              {m.cast}/{round.votes_per_member}
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

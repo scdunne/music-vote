@@ -98,6 +98,15 @@ language sql stable security definer set search_path = public as $$
   select status from rounds where id = r
 $$;
 
+-- Votes cast per member in a round. Counts only, and only for the host, so
+-- they can tell when everyone has voted without seeing the standings.
+create function vote_progress(r uuid) returns table (voter_id uuid, votes_cast int)
+language sql stable security definer set search_path = public as $$
+  select v.voter_id, count(*)::int from votes v
+  where v.round_id = r and is_member() and is_host()
+  group by v.voter_id
+$$;
+
 -- ---------------------------------------------------------------------------
 -- Triggers
 -- ---------------------------------------------------------------------------
