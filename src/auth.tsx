@@ -61,16 +61,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const meta = session.user.user_metadata ?? {};
       const spotifyName = meta.full_name ?? meta.name;
       if (spotifyName) {
-        // Signed in through Spotify (the host): keep name and avatar in sync.
+        // Signed in through Spotify (the host): seed the name once, then keep
+        // only the Spotify id and avatar in sync so a custom name sticks.
+        const spotifyFields = {
+          spotify_id: meta.provider_id ?? meta.sub ?? null,
+          avatar_url: meta.avatar_url ?? meta.picture ?? null,
+        };
         await supabase.from('profiles').upsert(
-          {
-            id: session.user.id,
-            spotify_id: meta.provider_id ?? meta.sub ?? null,
-            display_name: spotifyName,
-            avatar_url: meta.avatar_url ?? meta.picture ?? null,
-          },
-          { onConflict: 'id' },
+          { id: session.user.id, display_name: spotifyName, ...spotifyFields },
+          { onConflict: 'id', ignoreDuplicates: true },
         );
+        await supabase.from('profiles').update(spotifyFields).eq('id', session.user.id);
       } else {
         // Email login: create the profile once, never overwrite an existing name.
         await supabase.from('profiles').upsert(
